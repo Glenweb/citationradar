@@ -12,7 +12,7 @@
     "db:migrate": "node --env-file-if-exists=.env.local scripts/migrate.mjs",
     "db:seed": "node --env-file-if-exists=.env.local scripts/seed.mjs",
     "db:reset": "node --env-file-if-exists=.env.local scripts/migrate.mjs --reset",
-    "test": "node --env-file-if-exists=.env.local --test tests/*.test.mjs"
+    "test": "node --experimental-strip-types --no-warnings --import ./tests/register.mjs --test tests/*.test.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
