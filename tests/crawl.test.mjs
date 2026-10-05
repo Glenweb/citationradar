@@ -144,3 +144,29 @@ test('link normalisation strips fragments, tracking and trailing slashes', () =>
   assert.equal(normaliseLink('/style.css', base), null);
   assert.equal(normaliseLink('/doc.pdf', base), null);
 });
+
+test('proxy bypass honours NO_PROXY and always skips private destinations', async () => {
+  const { bypassesProxy } = await import('../src/lib/crawl/fetcher.ts');
+  const u = (s) => new URL(s);
+
+  // Always bypass, listed or not: a proxy cannot reach these, and routing them to one
+  // makes the crawler read the proxy's refusal as the site's own response.
+  assert.equal(bypassesProxy(u('http://127.0.0.1:8081/'), ''), true);
+  assert.equal(bypassesProxy(u('http://localhost:3000/'), ''), true);
+  assert.equal(bypassesProxy(u('http://10.1.2.3/'), ''), true);
+  assert.equal(bypassesProxy(u('http://192.168.1.5/'), ''), true);
+  assert.equal(bypassesProxy(u('http://169.254.169.254/'), ''), true);
+
+  // Public hosts go through the proxy unless NO_PROXY says otherwise.
+  assert.equal(bypassesProxy(u('https://example.com/'), ''), false);
+  assert.equal(bypassesProxy(u('https://example.com/'), 'example.com'), true);
+  assert.equal(bypassesProxy(u('https://api.example.com/'), 'example.com'), true);
+  assert.equal(bypassesProxy(u('https://api.example.com/'), '.example.com'), true);
+  assert.equal(bypassesProxy(u('https://notexample.com/'), 'example.com'), false);
+  assert.equal(bypassesProxy(u('https://example.com/'), 'other.com, example.com'), true);
+  assert.equal(bypassesProxy(u('https://anything.com/'), '*'), true);
+
+  // CIDR entries apply to literal IPs only.
+  assert.equal(bypassesProxy(u('http://100.70.0.1/'), '100.64.0.0/10'), true);
+  assert.equal(bypassesProxy(u('http://8.8.8.8/'), '100.64.0.0/10'), false);
+});

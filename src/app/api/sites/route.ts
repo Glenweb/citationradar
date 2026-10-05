@@ -34,16 +34,19 @@ export async function POST(req: Request) {
   try {
     const session = await requireSession();
     const body = siteSchema.parse(await readJson(req));
-    await assertSiteQuota(session.workspaceId, session.plan);
 
     const { origin, domain } = parseSiteUrl(body.url);
     // Confirm the host is public and resolvable before storing it.
     await assertSafeUrl(origin);
 
+    // Checked before the quota, because re-adding an existing site is not a capacity
+    // problem and "upgrade your plan" would be a misleading answer to it.
     const duplicate = await sqlOne<{ id: string }>`
       SELECT id FROM sites WHERE workspace_id = ${session.workspaceId} AND origin = ${origin}
     `;
     if (duplicate) return fail('That site is already in this workspace.', 409);
+
+    await assertSiteQuota(session.workspaceId, session.plan);
 
     const site = await sqlOne`
       INSERT INTO sites (workspace_id, origin, domain, name, brand_name, brand_aliases)

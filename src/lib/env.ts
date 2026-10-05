@@ -51,6 +51,23 @@ export const env = {
   crawlUserAgent: () =>
     optional('CRAWL_USER_AGENT', 'CitationRadarBot/1.0 (+https://citationradar.app/bot)'),
   crawlHardCap: () => Number(optional('CRAWL_MAX_PAGES_HARD_CAP', '2000')) || 2000,
+
+  /**
+   * Allow the crawler to reach private, loopback and link-local addresses.
+   *
+   * Off by default, because the free audit accepts a URL from anyone and the guard is
+   * what stops it being used to probe an internal network. Turn it on only for a
+   * trusted, non-public deployment — an agency auditing a staging site on its own
+   * network, or local development.
+   */
+  crawlAllowPrivateHosts: () => optional('CRAWL_ALLOW_PRIVATE_HOSTS') === 'true',
+
+  /** Outbound proxy for crawler requests, where the host requires one for egress. */
+  httpsProxy: () =>
+    optional('CRAWL_HTTPS_PROXY') || optional('HTTPS_PROXY') || optional('https_proxy'),
+
+  /** Hosts that must bypass the proxy, in the usual comma-separated NO_PROXY form. */
+  noProxy: () => optional('NO_PROXY') || optional('no_proxy'),
 };
 
 export const isProd = process.env.NODE_ENV === 'production';

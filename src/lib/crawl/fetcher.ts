@@ -16,6 +16,84 @@ export type FetchResult = {
   truncated: boolean;
 };
 
+/**
+ * Some hosts only permit outbound HTTP through a proxy. Node's fetch ignores the
+ * standard proxy variables, so when one is set we install a dispatcher for it, lazily
+ * and only for crawler traffic.
+ */
+let dispatcherReady = false;
+let proxyDispatcher: unknown = null;
+
+async function proxyAgent(): Promise<unknown> {
+  if (dispatcherReady) return proxyDispatcher;
+  dispatcherReady = true;
+
+  const proxy = env.httpsProxy();
+  if (!proxy) return null;
+  try {
+    const undici = (await import('undici')) as unknown as {
+      ProxyAgent: new (uri: string) => unknown;
+    };
+    proxyDispatcher = new undici.ProxyAgent(proxy);
+  } catch {
+    // undici ships with Node, but if the import is unavailable we fetch directly
+    // rather than failing the crawl.
+    proxyDispatcher = null;
+  }
+  return proxyDispatcher;
+}
+
+/**
+ * Should `url` bypass the proxy?
+ *
+ * Honouring NO_PROXY matters for correctness, not just tidiness: sending a loopback or
+ * internal request to an external proxy gets it refused, and the crawler would then read
+ * the proxy's own 403 as if it were the site's response — scoring a site on a page it
+ * never served. Private and loopback destinations always bypass, whether or not they are
+ * listed, because a proxy cannot reach them anyway.
+ */
+export function bypassesProxy(url: URL, noProxy = env.noProxy()): boolean {
+  const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+
+  if (host === 'localhost' || host.endsWith('.localhost')) return true;
+  if (isIP(host) && isPrivateAddress(host)) return true;
+
+  for (const raw of noProxy.split(',')) {
+    const entry = raw.trim().toLowerCase();
+    if (!entry) continue;
+    if (entry === '*') return true;
+
+    // CIDR entries only apply to literal IP destinations.
+    if (entry.includes('/')) {
+      if (isIP(host) && inCidr(host, entry)) return true;
+      continue;
+    }
+
+    const bare = entry.replace(/^\./, '');
+    if (host === bare || host.endsWith(`.${bare}`)) return true;
+  }
+  return false;
+}
+
+/** IPv4 CIDR containment. IPv6 ranges are left to the private-address check above. */
+function inCidr(ip: string, cidr: string): boolean {
+  const [network, bitsRaw] = cidr.split('/');
+  if (!network || isIP(network) !== 4 || isIP(ip) !== 4) return false;
+  const bits = Number(bitsRaw);
+  if (!Number.isInteger(bits) || bits < 0 || bits > 32) return false;
+
+  const toInt = (addr: string) =>
+    addr.split('.').reduce((acc, octet) => (acc << 8) + (Number(octet) & 255), 0) >>> 0;
+  const mask = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0;
+  return (toInt(ip) & mask) === (toInt(network) & mask);
+}
+
+/** The dispatcher to use for `url`: the proxy agent, or none if it bypasses. */
+async function outboundDispatcher(url: URL): Promise<unknown> {
+  if (bypassesProxy(url)) return null;
+  return proxyAgent();
+}
+
 const TIMEOUT_MS = 12_000;
 const MAX_BYTES = 2 * 1024 * 1024; // 2 MB — enough for any HTML document worth scoring
 const MAX_REDIRECTS = 5;
@@ -66,16 +144,21 @@ export async function assertSafeUrl(raw: string): Promise<URL> {
     throw new UnsafeUrlError('Only http and https URLs can be audited.');
   }
   if (!url.hostname) throw new UnsafeUrlError('That URL has no hostname.');
-  if (url.hostname === 'localhost' || url.hostname.endsWith('.localhost')) {
+  if (
+    !env.crawlAllowPrivateHosts() &&
+    (url.hostname === 'localhost' || url.hostname.endsWith('.localhost'))
+  ) {
     throw new UnsafeUrlError('Local addresses cannot be audited.');
   }
   if (url.username || url.password) {
     throw new UnsafeUrlError('URLs with embedded credentials cannot be audited.');
   }
 
+  const allowPrivate = env.crawlAllowPrivateHosts();
+
   const literal = isIP(url.hostname.replace(/^\[|\]$/g, ''));
   if (literal) {
-    if (isPrivateAddress(url.hostname)) {
+    if (!allowPrivate && isPrivateAddress(url.hostname)) {
       throw new UnsafeUrlError('Private and loopback addresses cannot be audited.');
     }
     return url;
@@ -84,7 +167,7 @@ export async function assertSafeUrl(raw: string): Promise<URL> {
   try {
     const results = await lookup(url.hostname, { all: true, verbatim: true });
     if (!results.length) throw new UnsafeUrlError(`${url.hostname} did not resolve.`);
-    if (results.some((r) => isPrivateAddress(r.address))) {
+    if (!allowPrivate && results.some((r) => isPrivateAddress(r.address))) {
       throw new UnsafeUrlError('That hostname resolves to a private address.');
     }
   } catch (e) {
@@ -123,9 +206,11 @@ export async function fetchPage(rawUrl: string): Promise<FetchResult> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
     try {
+      const dispatcher = await outboundDispatcher(current);
       const res = await fetch(current.toString(), {
         redirect: 'manual',
         signal: controller.signal,
+        ...(dispatcher ? ({ dispatcher } as Record<string, unknown>) : {}),
         headers: {
           'User-Agent': env.crawlUserAgent(),
           Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.5',
