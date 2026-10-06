@@ -27,7 +27,16 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en-GB">
-      <body>{children}</body>
+      {/*
+        Browser extensions commonly add attributes to <body> before React hydrates —
+        Grammarly's `data-gr-ext-installed` is the usual culprit — and React reports the
+        resulting mismatch as a hydration error the app can do nothing about.
+
+        suppressHydrationWarning applies only to this element's own attributes and text,
+        one level deep. Mismatches inside `children` are still reported, so a genuine
+        hydration bug in the app is not hidden by this.
+      */}
+      <body suppressHydrationWarning>{children}</body>
     </html>
   );
 }
