@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { requireSession } from '@/lib/auth/session';
+import { requireSessionOrRedirect } from '@/lib/auth/session';
 import { sqlOne } from '@/lib/db';
 import { getAuditIssues, getAuditPages, type AuditRecord, type StoredPillars } from '@/lib/aeo/run';
 import { PILLARS } from '@/lib/aeo/score';
@@ -21,7 +21,7 @@ export default async function AuditReportPage({
 }: {
   params: Promise<{ auditId: string }>;
 }) {
-  const session = await requireSession();
+  const session = await requireSessionOrRedirect();
   const { auditId } = await params;
   const plan = PLANS[session.plan];
 

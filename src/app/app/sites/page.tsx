@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
-import { requireSession } from '@/lib/auth/session';
+import { requireSessionOrRedirect } from '@/lib/auth/session';
 import { sql } from '@/lib/db';
 import { PLANS, formatLimit } from '@/lib/billing/plans';
 import { AddSiteForm } from '@/components/AddSiteForm';
@@ -10,7 +10,7 @@ export const metadata: Metadata = { title: 'Sites' };
 export const dynamic = 'force-dynamic';
 
 export default async function SitesPage() {
-  const session = await requireSession();
+  const session = await requireSessionOrRedirect();
   const plan = PLANS[session.plan];
 
   const sites = await sql<{

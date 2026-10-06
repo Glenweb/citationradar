@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { requireSession } from '@/lib/auth/session';
+import { requireSessionOrRedirect } from '@/lib/auth/session';
 import { sqlOne, activeDriver } from '@/lib/db';
 import { env } from '@/lib/env';
 import { ENGINE_LABELS, PLANS, type EngineId } from '@/lib/billing/plans';
@@ -13,7 +13,7 @@ export const metadata: Metadata = { title: 'Settings' };
 export const dynamic = 'force-dynamic';
 
 export default async function SettingsPage() {
-  const session = await requireSession();
+  const session = await requireSessionOrRedirect();
   const plan = PLANS[session.plan];
 
   const workspace = await sqlOne<Branding>`

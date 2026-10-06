@@ -1,6 +1,7 @@
 import 'server-only';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
 import { sql, sqlOne } from '../db';
 import { isProd } from '../env';
 
@@ -107,9 +108,26 @@ export class Unauthorized extends Error {
   }
 }
 
+/**
+ * For API routes: throws, so the handler's catch turns it into a 401.
+ */
 export async function requireSession(): Promise<SessionUser> {
   const s = await getSession();
   if (!s) throw new Unauthorized();
+  return s;
+}
+
+/**
+ * For pages: redirects to the login screen instead of throwing.
+ *
+ * A page that threw would be logged as an application error on every signed-out visit —
+ * ordinary traffic, not a fault — and that noise would hide a real auth failure. It would
+ * also leave the correct behaviour depending on the layout's redirect winning a race with
+ * the page's throw, which is not something to rely on.
+ */
+export async function requireSessionOrRedirect(): Promise<SessionUser> {
+  const s = await getSession();
+  if (!s) redirect('/login');
   return s;
 }
 

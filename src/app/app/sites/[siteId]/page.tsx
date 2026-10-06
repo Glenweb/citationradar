@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { requireSession } from '@/lib/auth/session';
+import { getSession, requireSessionOrRedirect } from '@/lib/auth/session';
 import { sql, sqlOne } from '@/lib/db';
 import { ENGINE_LABELS, PLANS, enginesForPlan, type EngineId } from '@/lib/billing/plans';
 import {
@@ -24,7 +24,7 @@ export async function generateMetadata({
   params: Promise<{ siteId: string }>;
 }): Promise<Metadata> {
   const { siteId } = await params;
-  const session = await requireSession().catch(() => null);
+  const session = await getSession();
   if (!session) return { title: 'Site' };
   const site = await sqlOne<{ name: string }>`
     SELECT name FROM sites WHERE id = ${siteId} AND workspace_id = ${session.workspaceId}
@@ -33,7 +33,7 @@ export async function generateMetadata({
 }
 
 export default async function SitePage({ params }: { params: Promise<{ siteId: string }> }) {
-  const session = await requireSession();
+  const session = await requireSessionOrRedirect();
   const { siteId } = await params;
   const plan = PLANS[session.plan];
 

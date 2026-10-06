@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
-import { requireSession } from '@/lib/auth/session';
+import { requireSessionOrRedirect } from '@/lib/auth/session';
 import { sql } from '@/lib/db';
 import { env } from '@/lib/env';
 import { PLANS } from '@/lib/billing/plans';
@@ -12,7 +12,7 @@ export const metadata: Metadata = { title: 'Reports' };
 export const dynamic = 'force-dynamic';
 
 export default async function ReportsPage() {
-  const session = await requireSession();
+  const session = await requireSessionOrRedirect();
   const plan = PLANS[session.plan];
 
   const [sites, links] = await Promise.all([

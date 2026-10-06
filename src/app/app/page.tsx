@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
-import { requireSession } from '@/lib/auth/session';
+import { requireSessionOrRedirect } from '@/lib/auth/session';
 import { sql } from '@/lib/db';
 import { ENGINE_LABELS, PLANS, formatLimit, type EngineId } from '@/lib/billing/plans';
 import { getUsage } from '@/lib/billing/usage';
@@ -27,7 +27,7 @@ type SiteRow = {
 };
 
 export default async function DashboardPage() {
-  const session = await requireSession();
+  const session = await requireSessionOrRedirect();
   const plan = PLANS[session.plan];
 
   const [sites, auditsUsed, engines] = await Promise.all([

@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
-import { requireSession } from '@/lib/auth/session';
+import { requireSessionOrRedirect } from '@/lib/auth/session';
 import { sqlOne } from '@/lib/db';
 import { PLANS, PLAN_ORDER, formatLimit, type PlanId } from '@/lib/billing/plans';
 import { getUsage } from '@/lib/billing/usage';
@@ -16,7 +16,7 @@ export default async function BillingPage({
 }: {
   searchParams: Promise<{ upgraded?: string; cancelled?: string }>;
 }) {
-  const session = await requireSession();
+  const session = await requireSessionOrRedirect();
   const params = await searchParams;
   const plan = PLANS[session.plan];
 
