@@ -162,3 +162,61 @@ test('grades map to the documented bands', () => {
   assert.equal(gradeFor(70), 'C');
   assert.equal(gradeFor(39), 'F');
 });
+
+test('a crawl that fetched nothing must not produce a score', async () => {
+  // The real-world case: the host is unreachable, so every page errored. robots.txt and
+  // llms.txt are "absent" only because we never got there — scoring that yields a
+  // plausible-looking number for a site nobody actually looked at.
+  const unreachable = outcome({
+    pages: [{ ...page(), statusCode: null, error: 'fetch failed', wordCount: 0, jsonldBlocks: 0 }],
+    answerSurface: {
+      llmsTxt: { present: false, bytes: 0, wellFormed: false, sections: 0 },
+      llmsFullTxt: { present: false, bytes: 0 },
+      sitemap: { present: false, urlCount: 0, source: null },
+    },
+  });
+
+  const s = scoreCrawl(unreachable, 'Example Brand');
+  // Scoring itself still runs — the guard that refuses to publish it lives in runAudit —
+  // but the content pillars must have had nothing to assess.
+  for (const id of ['structured_data', 'answerability', 'entity_clarity']) {
+    const pillar = s.pillars.find((p) => p.id === id);
+    assert.equal(pillar.checks.length, 0, `${id} should have no applicable checks`);
+  }
+
+  const { assertSomethingWasFetched } = await import('../src/lib/aeo/run.ts');
+  assert.throws(
+    () => assertSomethingWasFetched(unreachable, 'https://example.com/'),
+    (e) => {
+      assert.equal(e.name, 'SiteUnreachableError');
+      assert.match(e.message, /could not fetch example\.com/i);
+      assert.match(e.message, /fetch failed/);
+      return true;
+    },
+  );
+});
+
+test('an HTTP error from the site is reported as a crawler block, not a score', async () => {
+  const { assertSomethingWasFetched } = await import('../src/lib/aeo/run.ts');
+  const blocked = outcome({
+    pages: [{ ...page(), statusCode: 403, wordCount: 0 }],
+  });
+  assert.throws(
+    () => assertSomethingWasFetched(blocked, 'https://example.com/'),
+    (e) => {
+      assert.equal(e.name, 'SiteUnreachableError');
+      assert.match(e.message, /HTTP 403/);
+      // The finding that matters: the AI crawlers will be refused the same way.
+      assert.match(e.message, /GPTBot/);
+      return true;
+    },
+  );
+});
+
+test('a crawl with at least one good page is allowed to score', async () => {
+  const { assertSomethingWasFetched } = await import('../src/lib/aeo/run.ts');
+  const mixed = outcome({
+    pages: [{ ...page(), statusCode: 500, error: 'Server error' }, page()],
+  });
+  assert.doesNotThrow(() => assertSomethingWasFetched(mixed, 'https://example.com/'));
+});

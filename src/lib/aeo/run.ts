@@ -6,6 +6,7 @@ import { UnsafeUrlError, assertSafeUrl } from '../crawl/fetcher';
 import { deriveIssues, type Issue } from './issues';
 import { recommend, type Recommendation } from './recommend';
 import { scoreCrawl, type AeoScore } from './score';
+import { SiteUnreachableError } from '../errors';
 
 export type AuditRecord = {
   id: string;
@@ -30,6 +31,48 @@ export type AuditRecord = {
   completed_at: string | null;
   duration_ms: number | null;
 };
+
+/**
+ * Refuse to produce a score when not one page came back.
+ *
+ * Without this the audit still "completed": robots.txt and llms.txt are absent on a site
+ * we never reached, those checks score zero, and the report publishes a plausible-looking
+ * number — 45/100, grade E — for a site that was never actually fetched. A score the user
+ * reads as their own, derived from a page we never saw, is worse than no score at all, so
+ * the audit fails with the reason instead.
+ */
+export function assertSomethingWasFetched(outcome: CrawlOutcome, targetUrl: string): void {
+  const usable = outcome.pages.filter((p) => !p.error && (p.statusCode ?? 0) < 400);
+  if (usable.length > 0) return;
+
+  const first = outcome.pages[0];
+  const host = safeHost(targetUrl);
+
+  if (first?.statusCode && first.statusCode >= 400) {
+    throw new SiteUnreachableError(
+      `${host} returned HTTP ${first.statusCode} to our crawler, so there was no page to analyse. ` +
+        `If the site loads fine in a browser, it is likely blocking unknown crawlers — which ` +
+        `means GPTBot, ClaudeBot and PerplexityBot are being turned away in exactly the same way.`,
+    );
+  }
+
+  const reason = first?.error ?? 'the request failed';
+  throw new SiteUnreachableError(
+    `We could not fetch ${host} (${reason}). Check the address is right and the site is ` +
+      `reachable over HTTPS from outside your network. Bot-protection services and firewalls ` +
+      `often refuse unknown crawlers, and the AI crawlers hit the same wall.`,
+  );
+}
+
+function safeHost(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
+export { SiteUnreachableError };
 
 export function newPublicId(): string {
   return randomBytes(8).toString('base64url');
@@ -107,6 +150,8 @@ export async function runAudit(
       opts.scope === 'single_url'
         ? await crawlSingleUrl(opts.targetUrl)
         : await crawlSite(opts.targetUrl, opts.maxPages);
+
+    assertSomethingWasFetched(outcome, opts.targetUrl);
 
     const score = scoreCrawl(outcome, opts.brandName);
     const issues = deriveIssues(score);
